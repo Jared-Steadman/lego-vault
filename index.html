@@ -744,7 +744,7 @@
 
     try {
       // Brickset API v3 — search by EAN (barcode) via local proxy
-      const params = encodeURIComponent(JSON.stringify({ EAN: barcode }));
+      const params = encodeURIComponent(JSON.stringify({ query: barcode }));
       const url = `/api/brickset?apiKey=${key}&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
