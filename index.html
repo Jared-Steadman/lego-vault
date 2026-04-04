@@ -109,6 +109,7 @@
     gap: 1.5rem;
     height: calc(100vh - 64px);
     overflow-y: auto;
+    overflow-x: hidden;
     position: sticky;
     top: 64px;
   }
@@ -225,7 +226,7 @@
 
   .set-preview-img {
     width: 100%;
-    aspect-ratio: 4/3;
+    max-height: 160px;
     object-fit: contain;
     background: #111;
     border-radius: 6px;
@@ -234,7 +235,7 @@
 
   .set-preview-img-placeholder {
     width: 100%;
-    aspect-ratio: 4/3;
+    height: 100px;
     background: #111;
     border-radius: 6px;
     display: flex;
@@ -630,7 +631,6 @@
     <div class="divider"></div>
 
     <!-- SCAN -->
-    <div class="scan-section">
       <div class="section-label">Scan or Enter Barcode</div>
       <div class="scan-input-wrap">
         <span class="scan-icon">▌▌▌</span>
