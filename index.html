@@ -504,6 +504,9 @@
 
   .qty-btn:hover { border-color: var(--yellow); color: var(--yellow); }
 
+  .growth-pos { font-family: 'DM Mono', monospace; color: var(--green); font-size: 0.8rem; }
+  .growth-neg { font-family: 'DM Mono', monospace; color: var(--red); font-size: 0.8rem; }
+
   /* TOAST */
   .toast {
     position: fixed;
@@ -611,8 +614,22 @@
 
     <div class="divider"></div>
 
+    <!-- BRICKECONOMY API KEY -->
+    <div class="api-section">
+      <div class="section-label">BrickEconomy API Key</div>
+      <input type="text" id="be-api-key-input" placeholder="Paste your BrickEconomy key…" />
+      <div class="api-status">
+        <div class="status-dot" id="be-status-dot"></div>
+        <span class="status-text" id="be-status-text">Not connected</span>
+      </div>
+      <div class="alert" style="margin-top:0.75rem">
+        Get a key at <a href="https://www.brickeconomy.com/my-profile" target="_blank">brickeconomy.com</a> — requires a Premium account. Provides market values &amp; retail prices.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- SCAN -->
-    <div class="scan-section">
       <div class="section-label">Scan or Enter Barcode</div>
       <div class="scan-input-wrap">
         <span class="scan-icon">▌▌▌</span>
@@ -621,8 +638,8 @@
       <div class="scan-hint">Your scanner types the barcode — just press Enter or scan.</div>
       <div class="loading-bar" id="loading-bar"></div>
       <select class="condition-select" id="condition-select" style="margin-top:0.875rem">
-        <option value="Sealed" selected>Sealed / New</option>
-        <option value="Complete">Complete (opened)</option>
+        <option value="Sealed">Sealed / New</option>
+        <option value="Complete" selected>Complete (opened)</option>
         <option value="Incomplete">Incomplete</option>
       </select>
     </div>
@@ -685,6 +702,10 @@
           <th>Qty</th>
           <th>Condition</th>
           <th>Added</th>
+          <th>Retail Price</th>
+          <th>Mkt Value (New)</th>
+          <th>Mkt Value (Used)</th>
+          <th>12mo Growth</th>
           <th></th>
         </tr>
       </thead>
@@ -723,12 +744,21 @@
   const exportBtn     = document.getElementById('export-btn');
   const conditionSel  = document.getElementById('condition-select');
   const toast         = document.getElementById('toast');
+  const beApiKeyInput = document.getElementById('be-api-key-input');
+  const beStatusDot   = document.getElementById('be-status-dot');
+  const beStatusText  = document.getElementById('be-status-text');
 
   // ── Init ─────────────────────────────────────────────────────────────────
   const savedKey = localStorage.getItem('lego-vault-apikey');
   if (savedKey) {
     apiKeyInput.value = savedKey;
     setConnected();
+  }
+
+  const savedBeKey = localStorage.getItem('lego-vault-be-apikey');
+  if (savedBeKey) {
+    beApiKeyInput.value = savedBeKey;
+    setBeConnected();
   }
 
   renderCollection();
@@ -749,6 +779,23 @@
 
   function getApiKey() {
     return (apiKeyInput.value.trim() || localStorage.getItem('lego-vault-apikey') || '');
+  }
+
+  beApiKeyInput.addEventListener('change', () => {
+    const key = beApiKeyInput.value.trim();
+    if (key) {
+      localStorage.setItem('lego-vault-be-apikey', key);
+      setBeConnected();
+    }
+  });
+
+  function setBeConnected() {
+    beStatusDot.className = 'status-dot connected';
+    beStatusText.textContent = 'API key saved';
+  }
+
+  function getBeApiKey() {
+    return (beApiKeyInput.value.trim() || localStorage.getItem('lego-vault-be-apikey') || '');
   }
 
   // ── Barcode Scan ──────────────────────────────────────────────────────────
@@ -853,7 +900,32 @@
     saveCollection();
     renderCollection();
     showPreview(set);
+    fetchBrickEconomyData(setKey, existing || entry);
     barcodeInput.focus();
+  }
+
+  // ── BrickEconomy Enrichment ───────────────────────────────────────────────
+  async function fetchBrickEconomyData(setKey, entry) {
+    const beKey = getBeApiKey();
+    if (!beKey) return; // silently skip if no BE key configured
+
+    try {
+      const url = `/api/brickeconomy?apiKey=${encodeURIComponent(beKey)}&setNumber=${encodeURIComponent(setKey)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data?.data) {
+        const d = data.data;
+        entry.beRetailPrice   = d.retail_price_us ?? null;
+        entry.currentValueNew = d.current_value_new ?? null;
+        entry.currentValueUsed= d.current_value_used ?? null;
+        entry.growth12mo      = d.rolling_growth_12months ?? null;
+        saveCollection();
+        renderCollection();
+      }
+    } catch (err) {
+      // BE enrichment is best-effort — don't surface errors to the user
+    }
   }
 
   function showPreview(set) {
@@ -933,6 +1005,10 @@
         </td>
         <td><span class="table-theme">${s.condition}</span></td>
         <td class="table-date">${s.addedDate}</td>
+        <td class="table-price">${s.beRetailPrice != null ? '$' + s.beRetailPrice.toFixed(2) : '<span style="color:var(--muted)">—</span>'}</td>
+        <td class="table-price">${s.currentValueNew != null ? '$' + s.currentValueNew.toFixed(2) : '<span style="color:var(--muted)">—</span>'}</td>
+        <td class="table-price">${s.currentValueUsed != null ? '$' + s.currentValueUsed.toFixed(2) : '<span style="color:var(--muted)">—</span>'}</td>
+        <td class="${s.growth12mo != null ? (s.growth12mo >= 0 ? 'growth-pos' : 'growth-neg') : ''}">${s.growth12mo != null ? (s.growth12mo >= 0 ? '+' : '') + s.growth12mo.toFixed(1) + '%' : '<span style="color:var(--muted)">—</span>'}</td>
         <td><button class="delete-btn" onclick="removeSet(${i})" title="Remove">✕</button></td>
       </tr>
     `).join('');
@@ -1015,7 +1091,7 @@
       return;
     }
 
-    const headers = ['Set Number','Name','Theme','Subtheme','Year','Pieces','Minifigs','MSRP (USD)','Qty','Condition','Date Added','Brickset URL'];
+    const headers = ['Set Number','Name','Theme','Subtheme','Year','Pieces','Minifigs','MSRP (USD)','Qty','Condition','Date Added','Retail Price (BE)','Mkt Value New','Mkt Value Used','12mo Growth %','Brickset URL'];
     const rows = collection.map(s => [
       s.setKey,
       `"${(s.name || '').replace(/"/g, '""')}"`,
@@ -1028,6 +1104,10 @@
       s.qty || 1,
       s.condition,
       s.addedDate,
+      s.beRetailPrice != null ? s.beRetailPrice.toFixed(2) : '',
+      s.currentValueNew != null ? s.currentValueNew.toFixed(2) : '',
+      s.currentValueUsed != null ? s.currentValueUsed.toFixed(2) : '',
+      s.growth12mo != null ? s.growth12mo.toFixed(1) : '',
       s.bricksetURL || ''
     ]);
 
