@@ -921,10 +921,17 @@
 
       const item = data.items[0];
 
+      // Try to extract a LEGO set number from the title (e.g. "LEGO 75192" or "Set 10228")
+      let extractedSetNumber = null;
+      const setNumMatch = (item.title + ' ' + (item.description || '')).match(/\b(\d{4,6}-\d|\d{4,6})\b/);
+      if (setNumMatch) {
+        extractedSetNumber = setNumMatch[1].includes('-') ? setNumMatch[1] : setNumMatch[1] + '-1';
+      }
+
       // Build a minimal set object compatible with addSetToCollection
       const synthetic = {
-        number: barcode,
-        numberVariant: 1,
+        number: extractedSetNumber ? extractedSetNumber.split('-')[0] : barcode,
+        numberVariant: extractedSetNumber ? parseInt(extractedSetNumber.split('-')[1]) || 1 : 1,
         name: item.title || 'Unknown LEGO Set',
         theme: item.brand || 'LEGO',
         subtheme: '',
