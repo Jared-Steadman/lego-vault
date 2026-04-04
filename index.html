@@ -552,6 +552,35 @@
   .alert a { color: var(--yellow); text-decoration: none; }
   .alert a:hover { text-decoration: underline; }
 
+  .collapsible-toggle {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0;
+  }
+
+  .collapsible-toggle:hover { color: var(--soft); }
+
+  .toggle-arrow {
+    font-size: 0.55rem;
+    color: var(--muted);
+    transition: transform 0.2s ease;
+  }
+
+  .collapsible-body {
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+    max-height: 300px;
+    opacity: 1;
+  }
+
+  .collapsible-body.collapsed {
+    max-height: 0;
+    opacity: 0;
+  }
+
   .divider {
     height: 1px;
     background: var(--border);
@@ -587,11 +616,11 @@
     </div>
     <div class="hstat">
       <div class="hstat-val" id="stat-msrp">$0</div>
-      <div class="hstat-label">Original MSRP</div>
+      <div class="hstat-label">Total Retail Value</div>
     </div>
     <div class="hstat">
       <div class="hstat-val" id="stat-value">$0</div>
-      <div class="hstat-label">Collection MSRP</div>
+      <div class="hstat-label">Total Market Value</div>
     </div>
   </div>
 </header>
@@ -639,7 +668,6 @@
     <div class="divider"></div>
 
     <!-- SCAN -->
-    <div class="scan-section">
       <div class="section-label">Scan or Enter Barcode</div>
       <div class="scan-input-wrap">
         <span class="scan-icon">▌▌▌</span>
@@ -1049,14 +1077,15 @@
   }
 
   function updateStats() {
-    const totalSets = collection.reduce((a, s) => a + (s.qty || 1), 0);
-    // Original MSRP = per-set MSRP (×1), total MSRP = MSRP × qty
-    const originalMsrp = collection.reduce((a, s) => a + (s.msrp || 0), 0);
-    const totalValue   = collection.reduce((a, s) => a + (s.msrp || 0) * (s.qty || 1), 0);
+    const totalSets     = collection.reduce((a, s) => a + (s.qty || 1), 0);
+    const totalRetail   = collection.reduce((a, s) => a + (s.beRetailPrice || s.msrp || 0) * (s.qty || 1), 0);
+    const totalMarket   = collection.reduce((a, s) => a + (s.currentValueNew || 0) * (s.qty || 1), 0);
+
+    const fmt = n => '$' + n.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
     document.getElementById('stat-sets').textContent  = totalSets.toLocaleString();
-    document.getElementById('stat-msrp').textContent  = '$' + originalMsrp.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    document.getElementById('stat-value').textContent = '$' + totalValue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    document.getElementById('stat-msrp').textContent  = fmt(totalRetail);
+    document.getElementById('stat-value').textContent = totalMarket > 0 ? fmt(totalMarket) : '—';
   }
 
   function saveCollection() {
@@ -1147,6 +1176,32 @@
       barcodeInput.focus();
     }
   });
+
+  // ── Collapsible API sections ──────────────────────────────────────────────
+  function toggleSection(id, toggle) {
+    const body = document.getElementById(id);
+    body.classList.toggle('collapsed');
+    const arrow = toggle.querySelector('.toggle-arrow');
+    arrow.style.transform = body.classList.contains('collapsed') ? 'rotate(180deg)' : '';
+  }
+
+  // Apply collapsible-body class and auto-collapse if key already saved
+  ['brickset-body', 'brickeconomy-body'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.add('collapsible-body');
+  });
+
+  if (localStorage.getItem('lego-vault-apikey')) {
+    const body = document.getElementById('brickset-body');
+    body.classList.add('collapsed');
+    body.closest('.api-section').querySelector('.toggle-arrow').style.transform = 'rotate(180deg)';
+  }
+
+  if (localStorage.getItem('lego-vault-be-apikey')) {
+    const body = document.getElementById('brickeconomy-body');
+    body.classList.add('collapsed');
+    body.closest('.api-section').querySelector('.toggle-arrow').style.transform = 'rotate(180deg)';
+  }
 
   barcodeInput.focus();
   updateStats();
