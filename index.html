@@ -864,13 +864,21 @@
       const data = await res.json();
 
       if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
+        // Check for rate limit error from Brickset
+        if (data.status === 'error' && data.message && /quota|limit|exceeded/i.test(data.message)) {
+          showToast('Brickset limit reached, trying UPCitemdb…');
+          await lookupUpcItemDb(barcode);
+          return;
+        }
         await lookupBySetNumber(barcode, key);
         return;
       }
 
       addSetToCollection(data.sets[0]);
     } catch (err) {
-      showToast('Network error. Check your connection.', true);
+      // Brickset failed — try UPCitemdb as fallback
+      showToast('Brickset unavailable, trying UPCitemdb…');
+      await lookupUpcItemDb(barcode);
     } finally {
       loadingBar.classList.remove('active');
     }
@@ -895,6 +903,44 @@
       addSetToCollection(data.sets[0]);
     } catch(err) {
       showToast('Lookup failed. Try entering the set number directly.', true);
+    }
+  }
+
+  // ── UPCitemdb Fallback ────────────────────────────────────────────────────
+  async function lookupUpcItemDb(barcode) {
+    try {
+      const url = `/api/upcitemdb?upc=${encodeURIComponent(barcode)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data.items || data.items.length === 0) {
+        showToast(`No set found for: ${barcode}`, true);
+        barcodeInput.value = '';
+        return;
+      }
+
+      const item = data.items[0];
+
+      // Build a minimal set object compatible with addSetToCollection
+      const synthetic = {
+        number: barcode,
+        numberVariant: 1,
+        name: item.title || 'Unknown LEGO Set',
+        theme: item.brand || 'LEGO',
+        subtheme: '',
+        year: '',
+        pieces: 0,
+        minifigs: 0,
+        LEGOCom: {},
+        image: { imageURL: item.images?.[0] || '', thumbnailURL: item.images?.[0] || '' },
+        bricksetURL: ''
+      };
+
+      showToast(`Found via UPCitemdb: ${synthetic.name}`);
+      addSetToCollection(synthetic);
+    } catch (err) {
+      showToast('Both Brickset and UPCitemdb failed. Try again later.', true);
+      barcodeInput.value = '';
     }
   }
 
