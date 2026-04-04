@@ -759,13 +759,14 @@
     setPreview.classList.remove('visible');
 
     try {
-      // Brickset API v3 — search by EAN (barcode) via local proxy
-      const params = encodeURIComponent(JSON.stringify({ EAN: barcode }));
-      const url = `/api/brickset?apiKey=${key}&params=${params}`;
+      // Brickset API v3 — search by EAN (barcode)
+      const params = encodeURIComponent(JSON.stringify({ query: barcode }));
+      const url = `https://brickset.com/api/v3.asmx/getSets?apiKey=${key}&userHash=&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
+        // Fallback: try treating barcode as set number
         await lookupBySetNumber(barcode, key);
         return;
       }
@@ -781,12 +782,12 @@
   async function lookupBySetNumber(query, key) {
     try {
       const params = encodeURIComponent(JSON.stringify({ setNumber: query }));
-      const url = `/api/brickset?apiKey=${key}&params=${params}`;
+      const url = `https://brickset.com/api/v3.asmx/getSets?apiKey=${key}&userHash=&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
-        showToast(`No set found for: ${query}`, true);
+        showToast(`No set found for barcode/number: ${query}`, true);
         statusDot.className = 'status-dot error';
         statusText.textContent = 'Set not found';
         setTimeout(() => { statusDot.className='status-dot connected'; statusText.textContent='API key saved'; }, 3000);
@@ -854,6 +855,7 @@
     const price = set.LEGOCom?.US?.retailPrice;
     document.getElementById('preview-price').textContent = price ? `$${price.toFixed(2)}` : 'N/A';
 
+    // Image
     const imgWrap = document.getElementById('set-img-wrap');
     if (set.image?.imageURL) {
       imgWrap.innerHTML = `<img class="set-preview-img" src="${set.image.imageURL}" alt="${set.name}" onerror="this.style.display='none'">`;
@@ -1018,7 +1020,5 @@
   barcodeInput.focus();
   updateStats();
 </script>
-
-
 </body>
 </html>
