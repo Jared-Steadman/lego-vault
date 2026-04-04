@@ -486,6 +486,24 @@
 
   .delete-btn:hover { color: var(--red); }
 
+  .qty-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--soft);
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    line-height: 1;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .qty-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+
   /* TOAST */
   .toast {
     position: fixed;
@@ -564,8 +582,8 @@
       <div class="hstat-label">Sets Owned</div>
     </div>
     <div class="hstat">
-      <div class="hstat-val" id="stat-pieces">0</div>
-      <div class="hstat-label">Total Pieces</div>
+      <div class="hstat-val" id="stat-msrp">$0</div>
+      <div class="hstat-label">Original MSRP</div>
     </div>
     <div class="hstat">
       <div class="hstat-val" id="stat-value">$0</div>
@@ -636,8 +654,7 @@
         <option value="Incomplete">Incomplete</option>
       </select>
 
-      <button class="btn btn-primary" id="add-btn" style="margin-top:0.875rem">+ Add to Collection</button>
-      <button class="btn btn-secondary" id="clear-btn">Clear</button>
+      <button class="btn btn-secondary" id="undo-btn" style="margin-top:0.875rem">↩ Undo Last Scan</button>
     </div>
 
   </div>
@@ -665,6 +682,7 @@
           <th>Year</th>
           <th>Pieces</th>
           <th>MSRP</th>
+          <th>Qty</th>
           <th>Condition</th>
           <th>Added</th>
           <th></th>
@@ -680,7 +698,7 @@
 <script>
   // ── State ────────────────────────────────────────────────────────────────
   let collection = JSON.parse(localStorage.getItem('lego-vault-collection') || '[]');
-  let currentSet = null;
+  let lastAdded = null; // for undo
 
   // ── DOM refs ─────────────────────────────────────────────────────────────
   const apiKeyInput   = document.getElementById('api-key-input');
@@ -689,8 +707,7 @@
   const barcodeInput  = document.getElementById('barcode-input');
   const loadingBar    = document.getElementById('loading-bar');
   const setPreview    = document.getElementById('set-preview');
-  const addBtn        = document.getElementById('add-btn');
-  const clearBtn      = document.getElementById('clear-btn');
+  const undoBtn       = document.getElementById('undo-btn');
   const exportBtn     = document.getElementById('export-btn');
   const conditionSel  = document.getElementById('condition-select');
   const toast         = document.getElementById('toast');
@@ -740,22 +757,20 @@
 
     loadingBar.classList.add('active');
     setPreview.classList.remove('visible');
-    currentSet = null;
 
     try {
       // Brickset API v3 — search by EAN (barcode) via local proxy
-      const params = encodeURIComponent(JSON.stringify({ query: barcode }));
+      const params = encodeURIComponent(JSON.stringify({ EAN: barcode }));
       const url = `/api/brickset?apiKey=${key}&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
-        // Fallback: try treating barcode as set number
         await lookupBySetNumber(barcode, key);
         return;
       }
 
-      displaySet(data.sets[0]);
+      addSetToCollection(data.sets[0]);
     } catch (err) {
       showToast('Network error. Check your connection.', true);
     } finally {
@@ -771,23 +786,65 @@
       const data = await res.json();
 
       if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
-        showToast(`No set found for barcode/number: ${query}`, true);
+        showToast(`No set found for: ${query}`, true);
         statusDot.className = 'status-dot error';
         statusText.textContent = 'Set not found';
         setTimeout(() => { statusDot.className='status-dot connected'; statusText.textContent='API key saved'; }, 3000);
         return;
       }
 
-      displaySet(data.sets[0]);
+      addSetToCollection(data.sets[0]);
     } catch(err) {
       showToast('Lookup failed. Try entering the set number directly.', true);
     }
   }
 
-  function displaySet(set) {
-    currentSet = set;
+  // ── Auto-add to Collection on Scan ───────────────────────────────────────
+  function addSetToCollection(set) {
     barcodeInput.value = '';
+    const condition = conditionSel.value;
+    const setKey = set.number + '-' + set.numberVariant;
+    const price = set.LEGOCom?.US?.retailPrice;
 
+    // Check for existing entry with same setKey AND condition
+    const existing = collection.find(s => s.setKey === setKey && s.condition === condition);
+
+    if (existing) {
+      // Increment quantity
+      lastAdded = { type: 'qty', entry: existing, prevQty: existing.qty };
+      existing.qty = (existing.qty || 1) + 1;
+      showToast(`✓ ${set.name} — now ×${existing.qty} in your vault`);
+    } else {
+      // New entry
+      const entry = {
+        setKey,
+        number: set.number,
+        numberVariant: set.numberVariant,
+        name: set.name,
+        theme: set.theme || '',
+        subtheme: set.subtheme || '',
+        year: set.year || '',
+        pieces: set.pieces || 0,
+        minifigs: set.minifigs || 0,
+        msrp: price || null,
+        condition,
+        qty: 1,
+        addedDate: new Date().toISOString().split('T')[0],
+        imageURL: set.image?.thumbnailURL || '',
+        bricksetURL: set.bricksetURL || ''
+      };
+      lastAdded = { type: 'new', entry };
+      collection.push(entry);
+      showToast(`✓ ${set.name} added to your vault!`);
+    }
+
+    saveCollection();
+    renderCollection();
+    showPreview(set);
+    barcodeInput.focus();
+  }
+
+  function showPreview(set) {
     document.getElementById('preview-number').textContent = set.number + '-' + set.numberVariant;
     document.getElementById('preview-name').textContent = set.name || '—';
     document.getElementById('preview-year').textContent = set.year || '—';
@@ -797,7 +854,6 @@
     const price = set.LEGOCom?.US?.retailPrice;
     document.getElementById('preview-price').textContent = price ? `$${price.toFixed(2)}` : 'N/A';
 
-    // Image
     const imgWrap = document.getElementById('set-img-wrap');
     if (set.image?.imageURL) {
       imgWrap.innerHTML = `<img class="set-preview-img" src="${set.image.imageURL}" alt="${set.name}" onerror="this.style.display='none'">`;
@@ -812,53 +868,26 @@
     statusText.textContent = 'Set found ✓';
   }
 
-  // ── Add to Collection ─────────────────────────────────────────────────────
-  addBtn.addEventListener('click', () => {
-    if (!currentSet) return;
-
-    const setKey = currentSet.number + '-' + currentSet.numberVariant;
-
-    // Prevent duplicates
-    if (collection.find(s => s.setKey === setKey)) {
-      showToast(`${currentSet.name} is already in your collection.`, true);
+  // ── Undo Last Scan ────────────────────────────────────────────────────────
+  undoBtn.addEventListener('click', () => {
+    if (!lastAdded) {
+      showToast('Nothing to undo.', true);
       return;
     }
 
-    const price = currentSet.LEGOCom?.US?.retailPrice;
+    if (lastAdded.type === 'new') {
+      const idx = collection.indexOf(lastAdded.entry);
+      if (idx !== -1) collection.splice(idx, 1);
+      showToast(`Removed ${lastAdded.entry.name}`);
+    } else if (lastAdded.type === 'qty') {
+      lastAdded.entry.qty = lastAdded.prevQty;
+      showToast(`Reverted ${lastAdded.entry.name} to ×${lastAdded.prevQty}`);
+    }
 
-    const entry = {
-      setKey,
-      number: currentSet.number,
-      numberVariant: currentSet.numberVariant,
-      name: currentSet.name,
-      theme: currentSet.theme || '',
-      subtheme: currentSet.subtheme || '',
-      year: currentSet.year || '',
-      pieces: currentSet.pieces || 0,
-      minifigs: currentSet.minifigs || 0,
-      msrp: price || null,
-      condition: conditionSel.value,
-      addedDate: new Date().toISOString().split('T')[0],
-      imageURL: currentSet.image?.thumbnailURL || '',
-      bricksetURL: currentSet.bricksetURL || ''
-    };
-
-    collection.push(entry);
+    lastAdded = null;
+    setPreview.classList.remove('visible');
     saveCollection();
     renderCollection();
-    updateStats();
-
-    showToast(`✓ ${currentSet.name} added to your vault!`);
-    setPreview.classList.remove('visible');
-    currentSet = null;
-    barcodeInput.focus();
-  });
-
-  clearBtn.addEventListener('click', () => {
-    setPreview.classList.remove('visible');
-    currentSet = null;
-    barcodeInput.value = '';
-    barcodeInput.focus();
   });
 
   // ── Render Collection ─────────────────────────────────────────────────────
@@ -870,6 +899,7 @@
     if (collection.length === 0) {
       empty.style.display = 'flex';
       table.style.display = 'none';
+      updateStats();
       return;
     }
 
@@ -884,6 +914,11 @@
         <td class="table-pieces">${s.year || '—'}</td>
         <td class="table-pieces">${s.pieces ? s.pieces.toLocaleString() : '—'}</td>
         <td class="table-price">${s.msrp ? '$' + s.msrp.toFixed(2) : 'N/A'}</td>
+        <td class="table-pieces" style="text-align:center">
+          <button class="qty-btn" onclick="adjustQty(${i}, -1)">−</button>
+          <span style="margin:0 0.4rem;font-family:'DM Mono',monospace">${s.qty || 1}</span>
+          <button class="qty-btn" onclick="adjustQty(${i}, 1)">+</button>
+        </td>
         <td><span class="table-theme">${s.condition}</span></td>
         <td class="table-date">${s.addedDate}</td>
         <td><button class="delete-btn" onclick="removeSet(${i})" title="Remove">✕</button></td>
@@ -891,6 +926,20 @@
     `).join('');
 
     updateStats();
+  }
+
+  function adjustQty(i, delta) {
+    const entry = collection[i];
+    const newQty = (entry.qty || 1) + delta;
+    if (newQty < 1) {
+      if (confirm(`Remove ${entry.name} from your collection?`)) {
+        removeSet(i);
+      }
+      return;
+    }
+    entry.qty = newQty;
+    saveCollection();
+    renderCollection();
   }
 
   function removeSet(i) {
@@ -902,12 +951,13 @@
   }
 
   function updateStats() {
-    const totalSets = collection.length;
-    const totalPieces = collection.reduce((a, s) => a + (s.pieces || 0), 0);
-    const totalValue = collection.reduce((a, s) => a + (s.msrp || 0), 0);
+    const totalSets = collection.reduce((a, s) => a + (s.qty || 1), 0);
+    // Original MSRP = per-set MSRP (×1), total MSRP = MSRP × qty
+    const originalMsrp = collection.reduce((a, s) => a + (s.msrp || 0), 0);
+    const totalValue   = collection.reduce((a, s) => a + (s.msrp || 0) * (s.qty || 1), 0);
 
-    document.getElementById('stat-sets').textContent = totalSets.toLocaleString();
-    document.getElementById('stat-pieces').textContent = totalPieces.toLocaleString();
+    document.getElementById('stat-sets').textContent  = totalSets.toLocaleString();
+    document.getElementById('stat-msrp').textContent  = '$' + originalMsrp.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     document.getElementById('stat-value').textContent = '$' + totalValue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
@@ -922,7 +972,7 @@
       return;
     }
 
-    const headers = ['Set Number','Name','Theme','Subtheme','Year','Pieces','Minifigs','MSRP (USD)','Condition','Date Added','Brickset URL'];
+    const headers = ['Set Number','Name','Theme','Subtheme','Year','Pieces','Minifigs','MSRP (USD)','Qty','Condition','Date Added','Brickset URL'];
     const rows = collection.map(s => [
       s.setKey,
       `"${(s.name || '').replace(/"/g, '""')}"`,
@@ -932,6 +982,7 @@
       s.pieces || '',
       s.minifigs || '',
       s.msrp != null ? s.msrp.toFixed(2) : '',
+      s.qty || 1,
       s.condition,
       s.addedDate,
       s.bricksetURL || ''
@@ -967,5 +1018,7 @@
   barcodeInput.focus();
   updateStats();
 </script>
+
+
 </body>
 </html>
