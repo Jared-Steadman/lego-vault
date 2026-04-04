@@ -621,8 +621,8 @@
       <div class="scan-hint">Your scanner types the barcode — just press Enter or scan.</div>
       <div class="loading-bar" id="loading-bar"></div>
       <select class="condition-select" id="condition-select" style="margin-top:0.875rem">
-        <option value="Sealed" selected>Sealed / New</option>
-        <option value="Complete">Complete (opened)</option>
+        <option value="Sealed">Sealed / New</option>
+        <option value="Complete" selected>Complete (opened)</option>
         <option value="Incomplete">Incomplete</option>
       </select>
     </div>
@@ -662,9 +662,10 @@
   <div class="right-panel">
     <div class="right-header">
       <div class="right-title">MY COLLECTION</div>
-      <button class="export-btn" id="export-btn">
-        ⬇ Export CSV
-      </button>
+      <div style="display:flex;gap:0.5rem">
+        <button class="export-btn" id="export-btn">⬇ Export CSV</button>
+        <button class="export-btn" id="clear-all-btn" style="border-color:#E3000B22;color:var(--red)">✕ Clear List</button>
+      </div>
     </div>
 
     <div id="collection-empty" class="collection-empty">
@@ -691,6 +692,18 @@
     </table>
   </div>
 </main>
+
+<!-- CLEAR CONFIRMATION MODAL -->
+<div id="clear-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-top:3px solid var(--red);border-radius:10px;padding:2rem;max-width:380px;width:90%;animation:slideIn 0.2s ease">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.05em;margin-bottom:0.5rem">Clear Entire Collection?</div>
+    <div style="font-size:0.85rem;color:var(--soft);line-height:1.6;margin-bottom:1.5rem">This will permanently delete all <strong id="modal-count" style="color:var(--text)"></strong> from your vault. This cannot be undone.</div>
+    <div style="display:flex;gap:0.75rem">
+      <button id="modal-cancel" class="btn btn-secondary" style="flex:1;margin-top:0">Cancel</button>
+      <button id="modal-confirm" class="btn btn-primary" style="flex:1;background:var(--red)">Yes, Clear All</button>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -964,6 +977,37 @@
     localStorage.setItem('lego-vault-collection', JSON.stringify(collection));
   }
 
+  // ── Clear All ─────────────────────────────────────────────────────────────
+  const clearAllBtn   = document.getElementById('clear-all-btn');
+  const clearModal    = document.getElementById('clear-modal');
+  const modalCancel   = document.getElementById('modal-cancel');
+  const modalConfirm  = document.getElementById('modal-confirm');
+  const modalCount    = document.getElementById('modal-count');
+
+  clearAllBtn.addEventListener('click', () => {
+    if (collection.length === 0) { showToast('Your collection is already empty.', true); return; }
+    const total = collection.reduce((a, s) => a + (s.qty || 1), 0);
+    modalCount.textContent = `${total} set${total !== 1 ? 's' : ''}`;
+    clearModal.style.display = 'flex';
+  });
+
+  modalCancel.addEventListener('click', () => { clearModal.style.display = 'none'; });
+
+  modalConfirm.addEventListener('click', () => {
+    collection = [];
+    lastAdded = null;
+    saveCollection();
+    renderCollection();
+    setPreview.classList.remove('visible');
+    clearModal.style.display = 'none';
+    showToast('Collection cleared.');
+  });
+
+  // Close modal on backdrop click
+  clearModal.addEventListener('click', (e) => {
+    if (e.target === clearModal) clearModal.style.display = 'none';
+  });
+
   // ── CSV Export ────────────────────────────────────────────────────────────
   exportBtn.addEventListener('click', () => {
     if (collection.length === 0) {
@@ -1017,5 +1061,7 @@
   barcodeInput.focus();
   updateStats();
 </script>
+
+
 </body>
 </html>
