@@ -888,6 +888,7 @@
         statusDot.className = 'status-dot error';
         statusText.textContent = 'Set not found';
         setTimeout(() => { statusDot.className='status-dot connected'; statusText.textContent='API key saved'; }, 3000);
+        barcodeInput.value = '';
         return;
       }
 
