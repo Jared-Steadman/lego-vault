@@ -602,14 +602,18 @@
 
     <!-- API KEY -->
     <div class="api-section">
-      <div class="section-label">Brickset API Key</div>
-      <input type="text" id="api-key-input" placeholder="Paste your API key here…" />
-      <div class="api-status">
-        <div class="status-dot" id="status-dot"></div>
-        <span class="status-text" id="status-text">Not connected</span>
+      <div class="section-label collapsible-toggle" onclick="toggleSection('brickset-body', this)">
+        Brickset API Key <span class="toggle-arrow">▲</span>
       </div>
-      <div class="alert" style="margin-top:0.75rem">
-        Get a free key at <a href="https://brickset.com/tools/webservices/requestkey" target="_blank">brickset.com</a> — requires a free account. Keys allow up to 100 calls/day.
+      <div id="brickset-body">
+        <input type="text" id="api-key-input" placeholder="Paste your API key here…" />
+        <div class="api-status">
+          <div class="status-dot" id="status-dot"></div>
+          <span class="status-text" id="status-text">Not connected</span>
+        </div>
+        <div class="alert" style="margin-top:0.75rem">
+          Get a free key at <a href="https://brickset.com/tools/webservices/requestkey" target="_blank">brickset.com</a> — requires a free account. Keys allow up to 100 calls/day.
+        </div>
       </div>
     </div>
 
@@ -617,20 +621,25 @@
 
     <!-- BRICKECONOMY API KEY -->
     <div class="api-section">
-      <div class="section-label">BrickEconomy API Key</div>
-      <input type="text" id="be-api-key-input" placeholder="Paste your BrickEconomy key…" />
-      <div class="api-status">
-        <div class="status-dot" id="be-status-dot"></div>
-        <span class="status-text" id="be-status-text">Not connected</span>
+      <div class="section-label collapsible-toggle" onclick="toggleSection('brickeconomy-body', this)">
+        BrickEconomy API Key <span class="toggle-arrow">▲</span>
       </div>
-      <div class="alert" style="margin-top:0.75rem">
-        Get a key at <a href="https://www.brickeconomy.com/my-profile" target="_blank">brickeconomy.com</a> — requires a Premium account. Provides market values &amp; retail prices.
+      <div id="brickeconomy-body">
+        <input type="text" id="be-api-key-input" placeholder="Paste your BrickEconomy key…" />
+        <div class="api-status">
+          <div class="status-dot" id="be-status-dot"></div>
+          <span class="status-text" id="be-status-text">Not connected</span>
+        </div>
+        <div class="alert" style="margin-top:0.75rem">
+          Get a key at <a href="https://www.brickeconomy.com/my-profile" target="_blank">brickeconomy.com</a> — requires a Premium account. Provides market values &amp; retail prices.
+        </div>
       </div>
     </div>
 
     <div class="divider"></div>
 
     <!-- SCAN -->
+    <div class="scan-section">
       <div class="section-label">Scan or Enter Barcode</div>
       <div class="scan-input-wrap">
         <span class="scan-icon">▌▌▌</span>
