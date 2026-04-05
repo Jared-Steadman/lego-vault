@@ -675,6 +675,13 @@
         <input type="text" id="barcode-input" class="scan-input" placeholder="Focus here, then scan…" autocomplete="off" />
       </div>
       <div class="scan-hint">Your scanner types the barcode — just press Enter or scan.</div>
+      <div class="divider" style="margin:0.875rem 0"></div>
+      <div class="section-label">Enter Set Number Directly</div>
+      <div class="scan-input-wrap">
+        <span class="scan-icon" style="font-size:0.85rem">SET</span>
+        <input type="text" id="setnumber-input" class="scan-input" placeholder="e.g. 75192 or 75192-1" autocomplete="off" />
+      </div>
+      <div class="scan-hint">Sends directly to BrickEconomy — no barcode needed.</div>
       <div class="loading-bar" id="loading-bar"></div>
       <select class="condition-select" id="condition-select" style="margin-top:0.875rem">
         <option value="Sealed" selected>Sealed / New</option>
@@ -846,6 +853,22 @@
     }
   });
 
+  // ── Manual Set Number Entry ───────────────────────────────────────────────
+  const setNumberInput = document.getElementById('setnumber-input');
+  setNumberInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      const raw = setNumberInput.value.trim();
+      if (!raw) return;
+      // Normalise: if no variant suffix add -1
+      const setNumber = raw.includes('-') ? raw : raw + '-1';
+      setNumberInput.value = '';
+      loadingBar.classList.add('active');
+      await fetchBrickEconomyData(setNumber, null);
+      loadingBar.classList.remove('active');
+    }
+  });
+
+  // ── Step 1: Brickset — barcode → set number only ──────────────────────────
   async function lookupBarcode(barcode) {
     const key = getApiKey();
     if (!key) {
@@ -857,26 +880,26 @@
     setPreview.classList.remove('visible');
 
     try {
-      // Brickset API v3 — search by query (barcode) via local proxy
-      const params = encodeURIComponent(JSON.stringify({ query: barcode }));
+      const params = encodeURIComponent(JSON.stringify({ EAN: barcode }));
       const url = `/api/brickset?apiKey=${key}&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
 
-      if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
-        // Check for rate limit error from Brickset
-        if (data.status === 'error' && data.message && /quota|limit|exceeded/i.test(data.message)) {
-          showToast('Brickset limit reached, trying UPCitemdb…');
-          await lookupUpcItemDb(barcode);
-          return;
-        }
-        await lookupBySetNumber(barcode, key);
+      if (data.status === 'success' && data.sets && data.sets.length > 0) {
+        // Got a set number from Brickset — hand off to BrickEconomy
+        const number = data.sets[0].number;
+        const variant = data.sets[0].numberVariant || 1;
+        const setKey = `${number}-${variant}`;
+        barcodeInput.value = '';
+        await fetchBrickEconomyData(setKey, null);
         return;
       }
 
-      addSetToCollection(data.sets[0]);
+      // No match or error — fall back to UPCitemdb
+      showToast('Brickset: no match, trying UPCitemdb…');
+      await lookupUpcItemDb(barcode);
+
     } catch (err) {
-      // Brickset failed — try UPCitemdb as fallback
       showToast('Brickset unavailable, trying UPCitemdb…');
       await lookupUpcItemDb(barcode);
     } finally {
@@ -884,29 +907,7 @@
     }
   }
 
-  async function lookupBySetNumber(query, key) {
-    try {
-      const params = encodeURIComponent(JSON.stringify({ setNumber: query }));
-      const url = `/api/brickset?apiKey=${key}&params=${params}`;
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (data.status !== 'success' || !data.sets || data.sets.length === 0) {
-        showToast(`No set found for: ${query}`, true);
-        statusDot.className = 'status-dot error';
-        statusText.textContent = 'Set not found';
-        setTimeout(() => { statusDot.className='status-dot connected'; statusText.textContent='API key saved'; }, 3000);
-        barcodeInput.value = '';
-        return;
-      }
-
-      addSetToCollection(data.sets[0]);
-    } catch(err) {
-      showToast('Lookup failed. Try entering the set number directly.', true);
-    }
-  }
-
-  // ── UPCitemdb Fallback ────────────────────────────────────────────────────
+  // ── Step 1b: UPCitemdb fallback — barcode → set number only ──────────────
   async function lookupUpcItemDb(barcode) {
     try {
       const url = `/api/upcitemdb?upc=${encodeURIComponent(barcode)}`;
@@ -914,76 +915,123 @@
       const data = await res.json();
 
       if (!data.items || data.items.length === 0) {
-        showToast(`No set found for: ${barcode}`, true);
+        showToast(`No set found for barcode: ${barcode}`, true);
         barcodeInput.value = '';
         return;
       }
 
       const item = data.items[0];
 
-      // Try to extract a LEGO set number from the title (e.g. "LEGO 75192" or "Set 10228")
-      let extractedSetNumber = null;
-      const setNumMatch = (item.title + ' ' + (item.description || '')).match(/\b(\d{4,6}-\d|\d{4,6})\b/);
-      if (setNumMatch) {
-        extractedSetNumber = setNumMatch[1].includes('-') ? setNumMatch[1] : setNumMatch[1] + '-1';
+      // Extract set number from the model field, then fall back to title parsing
+      let setNumber = item.model || null;
+
+      if (!setNumber) {
+        const match = (item.title + ' ' + (item.description || '')).match(/\b(\d{4,6}(?:-\d)?)\b/);
+        setNumber = match ? match[1] : null;
       }
 
-      // Build a minimal set object compatible with addSetToCollection
-      const synthetic = {
-        number: extractedSetNumber ? extractedSetNumber.split('-')[0] : barcode,
-        numberVariant: extractedSetNumber ? parseInt(extractedSetNumber.split('-')[1]) || 1 : 1,
-        name: item.title || 'Unknown LEGO Set',
-        theme: item.brand || 'LEGO',
-        subtheme: '',
-        year: '',
-        pieces: 0,
-        minifigs: 0,
-        LEGOCom: {},
-        image: { imageURL: item.images?.[0] || '', thumbnailURL: item.images?.[0] || '' },
-        bricksetURL: ''
-      };
+      if (!setNumber) {
+        showToast(`Could not extract set number from UPCitemdb result.`, true);
+        barcodeInput.value = '';
+        return;
+      }
 
-      showToast(`Found via UPCitemdb: ${synthetic.name}`);
-      addSetToCollection(synthetic);
+      // Normalise
+      const setKey = setNumber.includes('-') ? setNumber : setNumber + '-1';
+      barcodeInput.value = '';
+      showToast(`Set number found via UPCitemdb: ${setKey}`);
+      await fetchBrickEconomyData(setKey, null);
+
     } catch (err) {
       showToast('Both Brickset and UPCitemdb failed. Try again later.', true);
       barcodeInput.value = '';
     }
   }
 
-  // ── Auto-add to Collection on Scan ───────────────────────────────────────
-  function addSetToCollection(set) {
-    barcodeInput.value = '';
-    const condition = conditionSel.value;
-    const setKey = set.number + '-' + set.numberVariant;
-    const price = set.LEGOCom?.US?.retailPrice;
+  // ── Step 2: BrickEconomy — set number → all data + add to collection ──────
+  async function fetchBrickEconomyData(setKey, existingEntry) {
+    const beKey = getBeApiKey();
+    if (!beKey) {
+      showToast('Please enter your BrickEconomy API key first.', true);
+      return;
+    }
 
-    // Check for existing entry with same setKey AND condition
+    try {
+      const url = `/api/brickeconomy?apiKey=${encodeURIComponent(beKey)}&setNumber=${encodeURIComponent(setKey)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data?.data) {
+        showToast(`BrickEconomy: no data found for ${setKey}`, true);
+        return;
+      }
+
+      const d = data.data;
+
+      // If we were passed an existing entry (re-enrichment), just update financials
+      if (existingEntry) {
+        existingEntry.beRetailPrice    = d.retail_price_us ?? null;
+        existingEntry.currentValueNew  = d.current_value_new ?? null;
+        existingEntry.currentValueUsed = d.current_value_used ?? null;
+        existingEntry.growth12mo       = d.rolling_growth_12months ?? null;
+        saveCollection();
+        renderCollection();
+        return;
+      }
+
+      // Build full entry from BrickEconomy data
+      addSetToCollection({
+        setKey:       d.set_number || setKey,
+        number:       (d.set_number || setKey).split('-')[0],
+        numberVariant: parseInt((d.set_number || setKey).split('-')[1]) || 1,
+        name:         d.name || setKey,
+        theme:        d.theme || '',
+        subtheme:     d.subtheme || '',
+        year:         d.year || '',
+        pieces:       d.pieces_count || 0,
+        minifigs:     d.minifigs_count || 0,
+        msrp:         d.retail_price_us || null,
+        beRetailPrice:    d.retail_price_us ?? null,
+        currentValueNew:  d.current_value_new ?? null,
+        currentValueUsed: d.current_value_used ?? null,
+        growth12mo:       d.rolling_growth_12months ?? null,
+      });
+
+    } catch (err) {
+      showToast('BrickEconomy lookup failed. Check your API key.', true);
+    }
+  }
+
+  // ── Add to Collection ─────────────────────────────────────────────────────
+  function addSetToCollection(set) {
+    const condition = conditionSel.value;
+    const setKey = set.setKey || (set.number + '-' + (set.numberVariant || 1));
     const existing = collection.find(s => s.setKey === setKey && s.condition === condition);
 
     if (existing) {
-      // Increment quantity
       lastAdded = { type: 'qty', entry: existing, prevQty: existing.qty };
       existing.qty = (existing.qty || 1) + 1;
       showToast(`✓ ${set.name} — now ×${existing.qty} in your vault`);
     } else {
-      // New entry
       const entry = {
         setKey,
-        number: set.number,
-        numberVariant: set.numberVariant,
-        name: set.name,
-        theme: set.theme || '',
-        subtheme: set.subtheme || '',
-        year: set.year || '',
-        pieces: set.pieces || 0,
-        minifigs: set.minifigs || 0,
-        msrp: price || null,
+        number:        set.number,
+        numberVariant: set.numberVariant || 1,
+        name:          set.name,
+        theme:         set.theme || '',
+        subtheme:      set.subtheme || '',
+        year:          set.year || '',
+        pieces:        set.pieces || 0,
+        minifigs:      set.minifigs || 0,
+        msrp:          set.msrp || null,
         condition,
-        qty: 1,
-        addedDate: new Date().toISOString().split('T')[0],
-        imageURL: set.image?.thumbnailURL || '',
-        bricksetURL: set.bricksetURL || ''
+        qty:           1,
+        addedDate:     new Date().toISOString().split('T')[0],
+        bricksetURL:   set.bricksetURL || '',
+        beRetailPrice:    set.beRetailPrice ?? null,
+        currentValueNew:  set.currentValueNew ?? null,
+        currentValueUsed: set.currentValueUsed ?? null,
+        growth12mo:       set.growth12mo ?? null,
       };
       lastAdded = { type: 'new', entry };
       collection.push(entry);
@@ -993,56 +1041,21 @@
     saveCollection();
     renderCollection();
     showPreview(set);
-    fetchBrickEconomyData(setKey, existing || entry);
     barcodeInput.focus();
   }
 
-  // ── BrickEconomy Enrichment ───────────────────────────────────────────────
-  async function fetchBrickEconomyData(setKey, entry) {
-    const beKey = getBeApiKey();
-    if (!beKey) return; // silently skip if no BE key configured
-
-    try {
-      const url = `/api/brickeconomy?apiKey=${encodeURIComponent(beKey)}&setNumber=${encodeURIComponent(setKey)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (data?.data) {
-        const d = data.data;
-        entry.beRetailPrice   = d.retail_price_us ?? null;
-        entry.currentValueNew = d.current_value_new ?? null;
-        entry.currentValueUsed= d.current_value_used ?? null;
-        entry.growth12mo      = d.rolling_growth_12months ?? null;
-        saveCollection();
-        renderCollection();
-      }
-    } catch (err) {
-      // BE enrichment is best-effort — don't surface errors to the user
-    }
-  }
-
   function showPreview(set) {
-    document.getElementById('preview-number').textContent = set.number + '-' + set.numberVariant;
+    document.getElementById('preview-number').textContent = set.setKey || (set.number + '-' + (set.numberVariant || 1));
     document.getElementById('preview-name').textContent = set.name || '—';
     document.getElementById('preview-year').textContent = set.year || '—';
     document.getElementById('preview-theme').textContent = set.theme || '—';
     document.getElementById('preview-pieces').textContent = set.pieces ? set.pieces.toLocaleString() : '—';
+    document.getElementById('preview-price').textContent = set.msrp ? `$${set.msrp.toFixed(2)}` : 'N/A';
 
-    const price = set.LEGOCom?.US?.retailPrice;
-    document.getElementById('preview-price').textContent = price ? `$${price.toFixed(2)}` : 'N/A';
-
-    const imgWrap = document.getElementById('set-img-wrap');
-    if (set.image?.imageURL) {
-      imgWrap.innerHTML = `<img class="set-preview-img" src="${set.image.imageURL}" alt="${set.name}" onerror="this.style.display='none'">`;
-    } else if (set.image?.thumbnailURL) {
-      imgWrap.innerHTML = `<img class="set-preview-img" src="${set.image.thumbnailURL}" alt="${set.name}" onerror="this.style.display='none'">`;
-    } else {
-      imgWrap.innerHTML = `<div class="set-preview-img-placeholder">🧱</div>`;
-    }
+    // No image source — show placeholder always
+    document.getElementById('set-img-wrap').innerHTML = `<div class="set-preview-img-placeholder">🧱</div>`;
 
     setPreview.classList.add('visible');
-    statusDot.className = 'status-dot connected';
-    statusText.textContent = 'Set found ✓';
   }
 
   // ── Undo Last Scan ────────────────────────────────────────────────────────
