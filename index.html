@@ -880,7 +880,7 @@
     setPreview.classList.remove('visible');
 
     try {
-      const params = encodeURIComponent(JSON.stringify({ EAN: barcode }));
+      const params = encodeURIComponent(JSON.stringify({ query: barcode }));
       const url = `/api/brickset?apiKey=${key}&params=${params}`;
       const res = await fetch(url);
       const data = await res.json();
