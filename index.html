@@ -869,6 +869,7 @@
     if (e.key === 'Enter') {
       const barcode = barcodeInput.value.trim();
       if (!barcode) return;
+      barcodeInput.value = '';
       await lookupBarcode(barcode);
     }
   });
